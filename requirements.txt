@@ -1,7 +1,7 @@
 setuptools
 wheel
-opencv-python==4.8.1.78
-numpy==1.24.3
+numpy>=2.0.0
+opencv-python>=4.10.0
 uvicorn[standard]
 passlib[bcrypt]
 alembic

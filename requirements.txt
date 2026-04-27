@@ -8,3 +8,4 @@ alembic
 python-jose[cryptography]
 pydantic-settings
 fastapi
+psycopg2-binary

@@ -10,3 +10,4 @@ pydantic-settings
 fastapi
 psycopg2-binary
 python-multipart
+requests

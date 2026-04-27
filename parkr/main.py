@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from parkr.database import create_tables
 from parkr.routes import spots_router
+from scripts.seed_demo_data import seed_demo_data
 
 
 @asynccontextmanager
@@ -11,7 +12,8 @@ async def lifespan(app: FastAPI):
     try:
         # SYNC call (NO await)
         create_tables()
-        print("Startup: Database ready")
+        seed_demo_data()
+        print("Startup: Database ready and seeded")
     except Exception as e:
         print(f"Startup error: {e}")
         raise

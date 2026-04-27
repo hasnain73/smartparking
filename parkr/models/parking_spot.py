@@ -135,4 +135,4 @@ class ParkingSpot(Base):
 
     def __repr__(self) -> str:
         status = self.private_status or self.street_status
-        return f"<ParkingSpot id={self.id} type={self.parking_type} status={status}>"
+        return f"<ParkingSpot id={self.id} type={self.parking_type} status={status}>" 

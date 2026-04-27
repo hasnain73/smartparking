@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Header
+import requests
+from io import BytesIO
 from parkr.services.cv_detector import detect_parking_status
 
 from parkr.database import get_db
@@ -29,9 +31,8 @@ router = APIRouter(prefix="/spots", tags=["spots"])
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_point_wkt(lat: float, lng: float) -> str:
-    return f"SRID=4326;POINT({lng} {lat})"
-
+def get_current_user(x_user_id: str | None = Header(None)) -> str:
+    return x_user_id or "user_1"
 
 def get_confidence_label(c: float) -> str:
     if c >= 0.7:
@@ -42,21 +43,6 @@ def get_confidence_label(c: float) -> str:
 
 
 def _spot_to_response(spot: ParkingSpot, distance_m: float | None = None) -> SpotResponse:
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc)
-
-    # SAFE access (NO lazy loading)
-    status_updated_at = spot.__dict__.get("status_updated_at", None)
-
-    # Extract lat/lng from WKT
-    lat, lng = 0.0, 0.0
-    if spot.location:
-        wkt = str(spot.location)
-        if wkt.startswith("POINT"):
-            coords = wkt.replace("POINT(", "").replace(")", "").split()
-            lng, lat = float(coords[0]), float(coords[1])
-
     if spot.parking_type == ParkingType.private:
         if spot.private_status == PrivateStatus.free:
             display_label = "available"
@@ -65,13 +51,16 @@ def _spot_to_response(spot: ParkingSpot, distance_m: float | None = None) -> Spo
     else:
         display_label = get_confidence_label(spot.confidence_score or 0.5)
 
+    status_updated_at = spot.__dict__.get("status_updated_at", None)
+
     return SpotResponse(
         id=spot.id,
         parking_type=spot.parking_type,
-        lat=lat,
-        lng=lng,
+        lat=spot.latitude,
+        lng=spot.longitude,
         spot_type=spot.spot_type,
         address=spot.address,
+        image_url=spot.image_url,
         private_status=spot.private_status,
         street_status=spot.street_status,
         display_label=display_label,
@@ -80,7 +69,7 @@ def _spot_to_response(spot: ParkingSpot, distance_m: float | None = None) -> Spo
         confidence_score=spot.confidence_score,
         is_active=spot.is_active,
         created_at=spot.created_at,
-        status_updated_at=status_updated_at,  # SAFE
+        status_updated_at=status_updated_at,
         distance_m=round(distance_m, 1) if distance_m is not None else None,
     )
 
@@ -93,12 +82,11 @@ def create_spot(
     db: Session = Depends(get_db),
 ) -> SpotResponse:
 
-    wkt = _make_point_wkt(body.lat, body.lng)
-
     if isinstance(body, CreatePrivateSpot):
         spot = ParkingSpot(
             parking_type=ParkingType.private,
-            location=wkt,
+            latitude=body.lat,
+            longitude=body.lng,
             spot_type=body.spot_type,
             address=body.address,
             private_status=PrivateStatus.free,
@@ -110,7 +98,8 @@ def create_spot(
     elif isinstance(body, CreateStreetSpot):
         spot = ParkingSpot(
             parking_type=ParkingType.street,
-            location=wkt,
+            latitude=body.lat,
+            longitude=body.lng,
             spot_type=body.spot_type,
             address=body.address,
             street_status=body.initial_status,
@@ -121,22 +110,10 @@ def create_spot(
         raise HTTPException(status_code=400, detail="Invalid parking_type")
 
     db.add(spot)
-    db.flush()
+    db.commit()
     db.refresh(spot)
 
-    result = db.execute(
-        select(
-            ParkingSpot,
-            ST_AsText(ParkingSpot.location).label("location_wkt"),
-        ).where(ParkingSpot.id == spot.id)
-    )
-
-    row = result.one()
-
-    # SAFE: assign WKT for parsing (acceptable here)
-    row[0].location = row[1]
-
-    return _spot_to_response(row[0])
+    return _spot_to_response(spot)
 
 
 # ── NEARBY SPOTS (FIXED) ─────────────────────────────────────────────────────
@@ -152,21 +129,9 @@ def get_nearby_spots(
     db: Session = Depends(get_db),
 ) -> NearbySpotResponse:
 
-    user_point = func.ST_GeogFromText(f"SRID=4326;POINT({lng} {lat})")
-
-    distance_expr = ST_Distance(ParkingSpot.location, user_point).label("distance_m")
-
     stmt = (
-        select(
-            ParkingSpot,
-            ST_AsText(ParkingSpot.location).label("location_wkt"),
-            distance_expr,
-        )
-        .where(
-            ParkingSpot.is_active.is_(True),
-            ST_DWithin(ParkingSpot.location, user_point, radius),
-        )
-        .order_by(distance_expr)
+        select(ParkingSpot)
+        .where(ParkingSpot.is_active.is_(True))
         .limit(limit)
     )
 
@@ -176,16 +141,12 @@ def get_nearby_spots(
     if spot_type:
         stmt = stmt.where(ParkingSpot.spot_type == spot_type)
 
-    with db.no_autoflush:
-        result = db.execute(stmt)
-        rows = result.all()
+    rows = db.execute(stmt).scalars().all()
 
     spots: list[SpotResponse] = []
 
-    for spot, location_wkt, dist in rows:
+    for spot in rows:
 
-        # DO NOT mutate ORM object
-        location = location_wkt
 
         signal_result = db.execute(
             select(SpotSignal)
@@ -210,9 +171,8 @@ def get_nearby_spots(
 
         # SAFE inject (not DB tracked)
         spot.__dict__["confidence_score"] = confidence
-        spot.__dict__["location"] = location
 
-        spots.append(_spot_to_response(spot, distance_m=dist))
+        spots.append(_spot_to_response(spot))
 
     return NearbySpotResponse(
         spots=spots,
@@ -230,6 +190,7 @@ def verify_spot(
     spot_id: uuid.UUID,
     body: VerifySpotRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user)
 ):
 
     spot = db.get(ParkingSpot, spot_id)
@@ -261,38 +222,31 @@ def verify_spot(
 
 @router.get("", response_model=list[SpotResponse])
 def list_spots(db: Session = Depends(get_db)):
-
-    result = db.execute(
-        select(
-            ParkingSpot,
-            ST_AsText(ParkingSpot.location).label("location_wkt"),
-        )
-    )
-
-    rows = result.all()
-
-    spots: list[SpotResponse] = []
-
-    for spot, location_wkt in rows:
-        spot.__dict__["location"] = location_wkt
-        spots.append(_spot_to_response(spot))
-
-    return spots
+    spots = db.execute(select(ParkingSpot)).scalars().all()
+    return [_spot_to_response(s) for s in spots]
 
 
 # ── DETECT SPOT STATUS ───────────────────────────────────────────────────────
 
 @router.post("/detect")
 async def detect_spot_status(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    image_url: str | None = Query(None),
     spot_id: uuid.UUID | None = None,
     db: Session = Depends(get_db)
 ):
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    if not file and not image_url:
+        raise HTTPException(status_code=400, detail="Either file or image_url must be provided")
 
     try:
-        image_bytes = await file.read()
+        if image_url:
+            response = requests.get(image_url, timeout=10)
+            response.raise_for_status()
+            image_bytes = response.content
+        else:
+            if not file.content_type.startswith('image/'):
+                raise HTTPException(status_code=400, detail="File must be an image")
+            image_bytes = await file.read()
         result = detect_parking_status(image_bytes)
 
         if spot_id:

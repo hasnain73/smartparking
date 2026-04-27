@@ -9,6 +9,7 @@ class SpotType(str, Enum):
     sedan = "sedan"
     suv = "suv"
     two_wheeler = "two_wheeler"
+    structured = "structured"
 
 class PrivateStatus(str, Enum):
     free = "free"

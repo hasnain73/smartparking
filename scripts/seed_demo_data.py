@@ -1,94 +1,87 @@
-import asyncio
-import os
-import sys
+import random
+import uuid
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 
-# Ensure parkr is importable if run from the root
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from sqlalchemy import delete, select
-from parkr.database import AsyncSessionLocal
-from parkr.models.enums import ParkingType, PrivateStatus, SpotType, StreetStatus
+from parkr.database import SessionLocal
 from parkr.models.parking_spot import ParkingSpot
-from parkr.models.spot_signal import SignalType, SourceType, SpotSignal
-from parkr.models.spot_verification import SpotVerification
+from parkr.models.spot_signal import SpotSignal, SignalType, SourceType
+from parkr.models.enums import ParkingType, PrivateStatus, StreetStatus, SpotType
 
+def seed_demo_data(db: Session = None):
+    """
+    Seeds 20 demo parking spots near Dharwad (Manjushree Nagar).
+    Safe to run multiple times.
+    """
+    if db is None:
+        db = SessionLocal()
+        should_close = True
+    else:
+        should_close = False
 
-async def seed():
-    async with AsyncSessionLocal() as session:
-        # Fetch existing demo spot IDs
-        result = await session.execute(
-            select(ParkingSpot.id).where(ParkingSpot.address.startswith("Demo "))
-        )
-        demo_ids = result.scalars().all()
+    try:
+        # Check if we already have demo data to avoid duplicates
+        existing_count = db.query(ParkingSpot).count()
+        if existing_count >= 20:
+            print(f"Skipping seeding: {existing_count} spots already exist.")
+            return
 
-        if demo_ids:
-            # Delete in order to avoid FK issues
-            await session.execute(delete(SpotSignal).where(SpotSignal.spot_id.in_(demo_ids)))
-            await session.execute(delete(SpotVerification).where(SpotVerification.spot_id.in_(demo_ids)))
-            await session.execute(delete(ParkingSpot).where(ParkingSpot.id.in_(demo_ids)))
-            await session.flush()
+        print("Seeding demo data...")
+        center_lat = 15.4589
+        center_lng = 75.0078
 
-        spots = []
+        # Demo data types and labels
+        parking_types = [ParkingType.street, ParkingType.private]
+        spot_types = [SpotType.hatchback, SpotType.sedan, SpotType.suv, SpotType.two_wheeler, SpotType.structured]
 
-        # 5 street spots
-        for i in range(5):
-            lat = 12.9716 + (i * 0.001)
-            lng = 77.5946 + (i * 0.001)
+        for i in range(20):
+            # Random offset ± 0.002
+            lat_offset = (random.random() - 0.5) * 0.004
+            lng_offset = (random.random() - 0.5) * 0.004
+            
+            p_type = random.choice(parking_types)
+            s_type = random.choice(spot_types)
+            
+            # If spot_type is structured, force some settings for demo logic
+            if s_type == SpotType.structured:
+                p_type = ParkingType.private # Structured is usually private/paid
+            
             spot = ParkingSpot(
-                parking_type=ParkingType.street,
-                location=f"SRID=4326;POINT({lng} {lat})",
-                spot_type=SpotType.hatchback,
-                address=f"Demo Street Spot {i}",
-                street_status=StreetStatus.unknown,
-                private_status=None,
+                id=uuid.uuid4(),
+                parking_type=p_type,
+                latitude=center_lat + lat_offset,
+                longitude=center_lng + lng_offset,
+                spot_type=s_type,
+                address=f"Demo Location {i+1}, Manjushree Nagar",
+                is_active=True,
+                # Set statuses based on type
+                private_status=PrivateStatus.free if p_type == ParkingType.private else None,
+                street_status=StreetStatus.unknown if p_type == ParkingType.street else None,
+                # Pricing for private spots
+                price_per_hour_paise=random.choice([3000, 5000, 8000]) if p_type == ParkingType.private else None,
+                max_duration_hrs=random.choice([2, 3, 4]) if p_type == ParkingType.private else None
             )
-            spots.append(spot)
-
-        # 5 private spots
-        for i in range(5):
-            lat = 12.9716 - (i * 0.001)
-            lng = 77.5946 - (i * 0.001)
-            spot = ParkingSpot(
-                parking_type=ParkingType.private,
-                location=f"SRID=4326;POINT({lng} {lat})",
-                spot_type=SpotType.sedan,
-                address=f"Demo Private Spot {i}",
-                private_status=PrivateStatus.free,
-                street_status=None,
-                price_per_hour_paise=2000,
-                max_duration_hrs=2,
+            
+            db.add(spot)
+            db.flush() # Get ID if needed, though we set it
+            
+            # Create a corresponding signal
+            signal = SpotSignal(
+                spot_id=spot.id,
+                signal_type=random.choice([SignalType.free, SignalType.occupied]),
+                confidence_score=round(random.uniform(0.6, 0.95), 2),
+                source_type=SourceType.passive, # Simulate demo seed as passive detection
             )
-            spots.append(spot)
+            db.add(signal)
 
-        session.add_all(spots)
-        await session.flush()
-
-        signals = []
-        for index, spot in enumerate(spots):
-            if index < 3:
-                # mostly free
-                seq = [SignalType.free, SignalType.free, SignalType.free, SignalType.free, SignalType.occupied]
-            elif index < 6:
-                # mostly occupied
-                seq = [SignalType.occupied, SignalType.occupied, SignalType.occupied, SignalType.occupied, SignalType.free]
-            else:
-                # mixed
-                seq = [SignalType.free, SignalType.occupied, SignalType.free, SignalType.occupied]
-
-            for s_type in seq:
-                signal = SpotSignal(
-                    spot_id=spot.id,
-                    signal_type=s_type,
-                    source_type=SourceType.user,
-                    confidence_score=0.8,
-                )
-                signals.append(signal)
-
-        session.add_all(signals)
-        await session.commit()
-        
-        print("Demo data seeded successfully")
-
+        db.commit()
+        print("Demo data seeded successfully.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error seeding data: {e}")
+    finally:
+        if should_close:
+            db.close()
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    seed_demo_data()

@@ -70,6 +70,7 @@ class SpotResponse(BaseModel):
     lng: float
     spot_type: SpotType
     address: str | None
+    image_url: str | None = None
 
     # Status: only the relevant field is populated
     private_status: PrivateStatus | None = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from geoalchemy2.functions import ST_AsText, ST_DWithin, ST_Distance
 from fastapi import UploadFile, File
 from parkr.services.cv_detector import detect_parking_status
@@ -88,9 +88,9 @@ def _spot_to_response(spot: ParkingSpot, distance_m: float | None = None) -> Spo
 # ── CREATE SPOT ──────────────────────────────────────────────────────────────
 
 @router.post("", response_model=SpotResponse, status_code=status.HTTP_201_CREATED)
-async def create_spot(
+def create_spot(
     body: CreateSpotRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> SpotResponse:
 
     wkt = _make_point_wkt(body.lat, body.lng)
@@ -121,10 +121,10 @@ async def create_spot(
         raise HTTPException(status_code=400, detail="Invalid parking_type")
 
     db.add(spot)
-    await db.flush()
-    await db.refresh(spot)
+    db.flush()
+    db.refresh(spot)
 
-    result = await db.execute(
+    result = db.execute(
         select(
             ParkingSpot,
             ST_AsText(ParkingSpot.location).label("location_wkt"),
@@ -142,14 +142,14 @@ async def create_spot(
 # ── NEARBY SPOTS (FIXED) ─────────────────────────────────────────────────────
 
 @router.get("/nearby", response_model=NearbySpotResponse)
-async def get_nearby_spots(
+def get_nearby_spots(
     lat: Annotated[float, Query(ge=-90, le=90)],
     lng: Annotated[float, Query(ge=-180, le=180)],
     radius: Annotated[int, Query(ge=50, le=5000)] = 200,
     parking_type: Annotated[ParkingType | None, Query()] = None,
     spot_type: Annotated[SpotType | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> NearbySpotResponse:
 
     user_point = func.ST_GeogFromText(f"SRID=4326;POINT({lng} {lat})")
@@ -177,7 +177,7 @@ async def get_nearby_spots(
         stmt = stmt.where(ParkingSpot.spot_type == spot_type)
 
     with db.no_autoflush:
-        result = await db.execute(stmt)
+        result = db.execute(stmt)
         rows = result.all()
 
     spots: list[SpotResponse] = []
@@ -187,7 +187,7 @@ async def get_nearby_spots(
         # DO NOT mutate ORM object
         location = location_wkt
 
-        signal_result = await db.execute(
+        signal_result = db.execute(
             select(SpotSignal)
             .where(SpotSignal.spot_id == spot.id)
             .order_by(SpotSignal.created_at.desc())
@@ -226,13 +226,13 @@ async def get_nearby_spots(
 # ── VERIFY SPOT ──────────────────────────────────────────────────────────────
 
 @router.post("/{spot_id}/verify", response_model=VerifySpotResponse)
-async def verify_spot(
+def verify_spot(
     spot_id: uuid.UUID,
     body: VerifySpotRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
 
-    spot = await db.get(ParkingSpot, spot_id)
+    spot = db.get(ParkingSpot, spot_id)
     if not spot:
         raise HTTPException(status_code=404, detail="Spot not found")
 
@@ -251,8 +251,8 @@ async def verify_spot(
     db.add(verification)
     db.add(signal)
 
-    await db.commit()
-    await db.refresh(verification)
+    db.commit()
+    db.refresh(verification)
 
     return verification
 
@@ -260,9 +260,9 @@ async def verify_spot(
 # ── LIST ALL SPOTS ───────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[SpotResponse])
-async def list_spots(db: AsyncSession = Depends(get_db)):
+def list_spots(db: Session = Depends(get_db)):
 
-    result = await db.execute(
+    result = db.execute(
         select(
             ParkingSpot,
             ST_AsText(ParkingSpot.location).label("location_wkt"),
@@ -286,7 +286,7 @@ async def list_spots(db: AsyncSession = Depends(get_db)):
 async def detect_spot_status(
     file: UploadFile = File(...),
     spot_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -296,7 +296,7 @@ async def detect_spot_status(
         result = detect_parking_status(image_bytes)
 
         if spot_id:
-            spot = await db.get(ParkingSpot, spot_id)
+            spot = db.get(ParkingSpot, spot_id)
             if not spot:
                 raise HTTPException(status_code=404, detail="Spot not found")
 
@@ -308,8 +308,8 @@ async def detect_spot_status(
             )
 
             db.add(signal)
-            await db.commit()
-            await db.refresh(signal)
+            db.commit()
+            db.refresh(signal)
 
             return {
                 "status": result["status"],
@@ -327,5 +327,5 @@ async def detect_spot_status(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        await db.rollback()
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")

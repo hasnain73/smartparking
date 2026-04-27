@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import ParkMap from './Parkmap.jsx'
+import { API_BASE } from './api'
 
 // ─── Mock data for demo (when backend is not running) ──────────────────────
 const MOCK_SPOTS = [
@@ -117,7 +118,7 @@ export default function App() {
     setTimeout(() => setLoadBar(false), 1200)
 
     try {
-      const url = `/api/v1/spots/nearby?lat=${latVal}&lng=${lngVal}&radius=${radiusVal}`
+      const url = `${API_BASE}/api/v1/spots/nearby?lat=${latVal}&lng=${lngVal}&radius=${radiusVal}`
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
@@ -249,7 +250,7 @@ export default function App() {
         formData.append('spot_id', spotId)
       }
 
-      const res = await fetch('http://127.0.0.1:8000/api/v1/spots/detect', {
+      const res = await fetch(`${API_BASE}/api/v1/spots/detect`, {
         method: 'POST',
         body: formData,
       })

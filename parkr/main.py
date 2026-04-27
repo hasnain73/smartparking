@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 from parkr.database import create_tables
 from parkr.routes import spots_router
@@ -10,7 +9,8 @@ from parkr.routes import spots_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        await create_tables()
+        # SYNC call (NO await)
+        create_tables()
         print("Startup: Database ready")
     except Exception as e:
         print(f"Startup error: {e}")
@@ -34,5 +34,5 @@ app.include_router(spots_router, prefix="/api/v1", tags=["spots"])
 
 
 @app.get("/health", include_in_schema=False)
-async def health():
+def health():
     return {"status": "ok"}

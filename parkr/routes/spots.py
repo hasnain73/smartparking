@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from geoalchemy2.functions import ST_AsText, ST_DWithin, ST_Distance
+
 from fastapi import UploadFile, File
 from parkr.services.cv_detector import detect_parking_status
 

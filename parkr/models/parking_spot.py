@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime
 
-from geoalchemy2 import Geography
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -34,11 +33,9 @@ class ParkingSpot(Base):
         Enum(ParkingType, name="parking_type_enum"), nullable=False, index=True
     )
 
-    # ── Geospatial ────────────────────────────────────────────────
-    # GEOGRAPHY type uses metres natively — no manual Haversine needed
-    location: Mapped[object] = mapped_column(
-        Geography(geometry_type="POINT", srid=4326), nullable=False
-    )
+    # ── Geospatial fallback ───────────────────────────────────────
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
     geohash6: Mapped[str] = mapped_column(String(8), nullable=True, index=True)
 
     address: Mapped[str | None] = mapped_column(String(300))
@@ -104,8 +101,6 @@ class ParkingSpot(Base):
             "NOT (parking_type = 'street' AND price_per_hour_paise IS NOT NULL)",
             name="chk_no_price_for_street",
         ),
-        # GIST index for fast PostGIS radius queries
-        Index("idx_spots_location_gist", "location", postgresql_using="gist"),
         # Partial index: private spots by status
         Index(
             "idx_spots_private_status",

@@ -1,6 +1,9 @@
+setuptools
+wheel
 opencv-python==4.8.1.78
 numpy==1.24.3
 uvicorn[standard]
 passlib[bcrypt]
 alembic
 python-jose[cryptography]
+pydantic-settings

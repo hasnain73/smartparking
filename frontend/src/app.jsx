@@ -65,10 +65,12 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  const [address, setAddress] = useState('12 MG Road, Bengaluru')
-  const [lat, setLat] = useState('12.9716')
-  const [lng, setLng] = useState('77.5946')
-  const [radius, setRadius] = useState('500')
+  const [address, setAddress] = useState('Manjushree Nagar, Dharwad')
+  const [userLocation, setUserLocation] = useState({
+    lat: 15.4182,
+    lng: 75.0498
+  })
+  const [radius, setRadius] = useState('5000')
 
   const [spots, setSpots] = useState([])
   const [loading, setLoading] = useState(false)
@@ -76,8 +78,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [spotCount, setSpotCount] = useState(null)
 
-  // NEW: User Location state
-  const [userLocation, setUserLocation] = useState(null)
+  // NEW: Destination and heuristic state
   const [destination, setDestination] = useState(null)
   const [availabilityInfo, setAvailabilityInfo] = useState(null)
 
@@ -165,40 +166,41 @@ export default function App() {
 
   // Auto-fetch on load
   useEffect(() => {
-    fetchSpots(lat, lng, radius)
+    fetchSpots(userLocation.lat, userLocation.lng, radius)
   }, [])
 
   // Auto-refresh every 8 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchSpots(lat, lng, radius)
+      fetchSpots(userLocation.lat, userLocation.lng, radius)
     }, 8000)
     return () => clearInterval(interval)
-  }, [lat, lng, radius, fetchSpots])
+  }, [userLocation.lat, userLocation.lng, radius, fetchSpots])
 
-  // Geolocation on load
-  useEffect(() => {
+  // Geolocation helper
+  const getCurrentLocation = () => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const newLat = pos.coords.latitude
           const newLng = pos.coords.longitude
           setUserLocation({ lat: newLat, lng: newLng })
-          
-          setLat(newLat.toString())
-          setLng(newLng.toString())
-          fetchSpots(newLat.toString(), newLng.toString(), radius)
+          fetchSpots(newLat, newLng, radius)
         },
         (err) => {
           console.error("Location access denied", err)
+          setError("Could not get current location")
         }
       )
+    } else {
+      setError("Geolocation not supported")
     }
-  }, [])
+  }
 
   const handleFind = async () => {
     if (!address.trim()) {
-      setError('Please enter an address')
+      // If address is empty, just use the manual coordinates
+      await fetchSpots(userLocation.lat, userLocation.lng, radius)
       return
     }
 
@@ -214,11 +216,10 @@ export default function App() {
         throw new Error('Address not found. Try a different search.')
       }
 
-      const newLat = geoData[0].lat
-      const newLng = geoData[0].lon
+      const newLat = parseFloat(geoData[0].lat)
+      const newLng = parseFloat(geoData[0].lon)
 
-      setLat(newLat)
-      setLng(newLng)
+      setUserLocation({ lat: newLat, lng: newLng })
       addToHistory(address)
 
       await fetchSpots(newLat, newLng, radius)
@@ -325,20 +326,18 @@ export default function App() {
   }
 
   const onPostLocation = (clickedLat, clickedLng) => {
-    setLat(clickedLat.toString())
-    setLng(clickedLng.toString())
+    setUserLocation({ lat: clickedLat, lng: clickedLng })
     setPostModalOpen(true)
   }
 
   const onFindLocation = (clickedLat, clickedLng) => {
-    setLat(clickedLat.toString())
-    setLng(clickedLng.toString())
+    setUserLocation({ lat: clickedLat, lng: clickedLng })
     setDestination({ lat: clickedLat, lng: clickedLng })
     updateAvailability(clickedLat, clickedLng)
     fetchSpots(clickedLat, clickedLng, radius)
   }
 
-  const center = [parseFloat(lat) || 12.9716, parseFloat(lng) || 77.5946]
+  const center = [userLocation.lat, userLocation.lng]
 
   return (
     <div className="app-layout">
@@ -555,17 +554,35 @@ export default function App() {
           </div>
         </div>
 
-        <div className="input-group" style={{ maxWidth: 90 }}>
-          <span>Radius (m)</span>
+        <div className="input-group" style={{ maxWidth: 100 }}>
+          <span>Latitude</span>
           <input
             type="number"
-            value={radius}
-            onChange={e => setRadius(e.target.value)}
-            placeholder="500"
-            min="100"
-            max="5000"
+            value={userLocation.lat}
+            onChange={e => setUserLocation({ ...userLocation, lat: parseFloat(e.target.value) })}
+            step="0.0001"
           />
         </div>
+
+        <div className="input-group" style={{ maxWidth: 100 }}>
+          <span>Longitude</span>
+          <input
+            type="number"
+            value={userLocation.lng}
+            onChange={e => setUserLocation({ ...userLocation, lng: parseFloat(e.target.value) })}
+            step="0.0001"
+          />
+        </div>
+
+        <div className="panel-divider" />
+
+        <button
+          className="btn-secondary"
+          onClick={getCurrentLocation}
+          title="Use my current GPS location"
+        >
+          📍 Me
+        </button>
 
         <div className="panel-divider" />
 

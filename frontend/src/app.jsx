@@ -5,24 +5,24 @@ import { API_BASE } from './api'
 // ─── Mock data for demo (when backend is not running) ──────────────────────
 const MOCK_SPOTS = [
   {
-    id: 1, latitude: 12.3661, longitude: 76.6880,
-    address: 'Mysore Palace Area',
+    id: 1, latitude: 15.4360, longitude: 75.0210,
+    address: 'Gandhinagar 1st Cross',
     parking_type: 'street',
     display_label: 'Likely Free',
     confidence_score: 0.87,
     distance: 42,
   },
   {
-    id: 2, latitude: 12.3680, longitude: 76.6900,
-    address: 'Agrahara Main Road',
+    id: 2, latitude: 15.4330, longitude: 75.0180,
+    address: 'Someshwara Temple Entrance',
     parking_type: 'private',
     display_label: 'Uncertain',
     confidence_score: 0.54,
     distance: 180,
   },
   {
-    id: 3, latitude: 12.3650, longitude: 76.6870,
-    address: 'Jayanagar 4th Block',
+    id: 3, latitude: 15.4355, longitude: 75.0175,
+    address: 'Karnataka Bank Parking',
     parking_type: 'private',
     spot_type: 'structured',
     display_label: 'Likely Occupied',
@@ -30,16 +30,16 @@ const MOCK_SPOTS = [
     distance: 310,
   },
   {
-    id: 4, latitude: 12.3675, longitude: 76.6850,
-    address: 'K.R. Circle',
+    id: 4, latitude: 15.4325, longitude: 75.0220,
+    address: 'Gandhinagar Park Side',
     parking_type: 'street',
     display_label: 'Likely Free',
     confidence_score: 0.91,
     distance: 95,
   },
   {
-    id: 5, latitude: 12.3690, longitude: 76.6920,
-    address: 'Lashkar Mohalla',
+    id: 5, latitude: 15.4370, longitude: 75.0195,
+    address: 'Market Road Junction',
     parking_type: 'street',
     display_label: 'Uncertain',
     confidence_score: 0.48,
@@ -66,12 +66,12 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  const [address, setAddress] = useState('Mysore, Karnataka')
+  const [address, setAddress] = useState('Someshwara Temple Road, Gandhinagar, Dharwad')
   const [userLocation, setUserLocation] = useState({
-    lat: 12.3661,
-    lng: 76.688065
+    lat: 15.434357,
+    lng: 75.019116
   })
-  const [radius, setRadius] = useState('5000')
+  const [radius, setRadius] = useState('600')
 
   const [spots, setSpots] = useState([])
   const [loading, setLoading] = useState(false)
@@ -190,9 +190,9 @@ export default function App() {
     return () => clearInterval(interval)
   }, [userLocation.lat, userLocation.lng, radius, fetchSpots])
 
-  // Geolocation helper with Reverse Geocoding
+  // Geolocation handler for the 📍 button
   const handleUseMyLocation = () => {
-    if (!('geolocation' in navigator)) {
+    if (!navigator.geolocation) {
       alert("Geolocation not supported by this browser.")
       return
     }
@@ -200,38 +200,30 @@ export default function App() {
     setLocLoading(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const newLat = pos.coords.latitude
-        const newLng = pos.coords.longitude
+        const { latitude, longitude } = pos.coords
         
-        console.log("GPS Location Received:", newLat, newLng)
-
-        // 1. Update coordinates state
-        const loc = { lat: newLat, lng: newLng }
+        // 1. Update state (which moves map and shows marker via Parkmap props)
+        const loc = { lat: latitude, lng: longitude }
         setUserLocation(loc)
         localStorage.setItem('parker_last_loc', JSON.stringify(loc))
         
-        // 2. Fetch spots around this location
-        fetchSpots(newLat, newLng, radius)
+        // 2. Refresh spots
+        fetchSpots(latitude, longitude, radius)
 
-        // 3. Reverse geocoding (Connect GPS to human-readable address)
+        // 3. Reverse geocode (UX improvement)
         try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${newLat}&lon=${newLng}&format=json`
-          )
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`)
           const data = await res.json()
-
-          if (data && data.display_name) {
-            setAddress(data.display_name)
-          }
+          if (data?.display_name) setAddress(data.display_name)
         } catch (err) {
-          console.error("Reverse geocode failed", err)
+          console.error("Geocode error", err)
         } finally {
           setLocLoading(false)
         }
       },
       (err) => {
-        console.error("Location error", err)
-        alert("Location permission denied or unavailable.")
+        console.error(err)
+        alert("Unable to fetch current location")
         setLocLoading(false)
       },
       { enableHighAccuracy: true, timeout: 10000 }

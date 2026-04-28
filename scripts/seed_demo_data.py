@@ -26,17 +26,21 @@ def seed_demo_data(db: Session = None):
         db.commit()
 
         print("Seeding demo data...")
-        center_lat = 12.3661
-        center_lng = 76.688065
+        center_lat = 15.434357
+        center_lng = 75.019116
 
         # Demo data types and labels
         parking_types = [ParkingType.street, ParkingType.private]
         spot_types = [SpotType.hatchback, SpotType.sedan, SpotType.suv, SpotType.two_wheeler, SpotType.structured]
 
         for i in range(20):
-            # Random offset ± 0.002
-            lat_offset = (random.random() - 0.5) * 0.004
-            lng_offset = (random.random() - 0.5) * 0.004
+            # Random offset between 200m and 500m (approx 0.002 to 0.005 degrees)
+            # Use random direction and radius
+            angle = random.uniform(0, 2 * 3.14159)
+            dist_deg = random.uniform(0.002, 0.005)
+            
+            lat_offset = dist_deg * 0.7 # squish for lat
+            lng_offset = dist_deg
             
             p_type = random.choice(parking_types)
             s_type = random.choice(spot_types)
@@ -51,7 +55,7 @@ def seed_demo_data(db: Session = None):
                 latitude=center_lat + lat_offset,
                 longitude=center_lng + lng_offset,
                 spot_type=s_type,
-                address=f"Mysore Demo Spot {i+1}, Near Agrahara",
+                address=f"Gandhinagar Spot {i+1}, Dharwad",
                 is_active=True,
                 # Set statuses based on type
                 private_status=PrivateStatus.free if p_type == ParkingType.private else None,

@@ -10,8 +10,8 @@ L.Icon.Default.mergeOptions({
 })
 
 function getStatusColor(spot) {
-  if (spot.spot_type === "structured") return "#a855f7" // purple
-  if (spot.parking_type === "private") return "#FFD700"  // gold
+  if (spot.spot_type === "structured") return "#FFD700" // gold
+  if (spot.parking_type === "private") return "#3b82f6"  // blue
   return "#ef4444" // red (street default)
 }
 
@@ -101,7 +101,7 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
     if (mapInstanceRef.current) return
     mapInstanceRef.current = L.map(mapRef.current, {
       center: center,
-      zoom: 15,
+      zoom: 16,
       zoomControl: false,
     })
 
@@ -156,7 +156,7 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
   // Recenter
   useEffect(() => {
     if (!mapInstanceRef.current) return
-    mapInstanceRef.current.setView(center, 15, { animate: true })
+    mapInstanceRef.current.setView(center, 16, { animate: true })
   }, [center[0], center[1]])
 
   // Update markers

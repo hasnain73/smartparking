@@ -20,15 +20,14 @@ def seed_demo_data(db: Session = None):
         should_close = False
 
     try:
-        # Check if we already have demo data to avoid duplicates
-        existing_count = db.query(ParkingSpot).count()
-        if existing_count >= 20:
-            print(f"Skipping seeding: {existing_count} spots already exist.")
-            return
+        # Clear existing spots for a clean demo at the new location
+        db.query(SpotSignal).delete()
+        db.query(ParkingSpot).delete()
+        db.commit()
 
         print("Seeding demo data...")
-        center_lat = 15.4589
-        center_lng = 75.0078
+        center_lat = 12.3661
+        center_lng = 76.688065
 
         # Demo data types and labels
         parking_types = [ParkingType.street, ParkingType.private]
@@ -52,7 +51,7 @@ def seed_demo_data(db: Session = None):
                 latitude=center_lat + lat_offset,
                 longitude=center_lng + lng_offset,
                 spot_type=s_type,
-                address=f"Demo Location {i+1}, Manjushree Nagar",
+                address=f"Mysore Demo Spot {i+1}, Near Agrahara",
                 is_active=True,
                 # Set statuses based on type
                 private_status=PrivateStatus.free if p_type == ParkingType.private else None,

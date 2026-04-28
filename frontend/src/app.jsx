@@ -5,41 +5,42 @@ import { API_BASE } from './api'
 // ─── Mock data for demo (when backend is not running) ──────────────────────
 const MOCK_SPOTS = [
   {
-    id: 1, latitude: 12.9716, longitude: 77.5946,
-    address: '12 MG Road, Bengaluru',
-    parking_type: 'Street',
+    id: 1, latitude: 12.3661, longitude: 76.6880,
+    address: 'Mysore Palace Area',
+    parking_type: 'street',
     display_label: 'Likely Free',
     confidence_score: 0.87,
     distance: 42,
   },
   {
-    id: 2, latitude: 12.9730, longitude: 77.5960,
-    address: '3 Brigade Road',
-    parking_type: 'Lot',
+    id: 2, latitude: 12.3680, longitude: 76.6900,
+    address: 'Agrahara Main Road',
+    parking_type: 'private',
     display_label: 'Uncertain',
     confidence_score: 0.54,
     distance: 180,
   },
   {
-    id: 3, latitude: 12.9700, longitude: 77.5935,
-    address: 'Residency Road Parking',
-    parking_type: 'Multi-level',
+    id: 3, latitude: 12.3650, longitude: 76.6870,
+    address: 'Jayanagar 4th Block',
+    parking_type: 'private',
+    spot_type: 'structured',
     display_label: 'Likely Occupied',
     confidence_score: 0.21,
     distance: 310,
   },
   {
-    id: 4, latitude: 12.9725, longitude: 77.5920,
-    address: 'Richmond Circle',
-    parking_type: 'Street',
+    id: 4, latitude: 12.3675, longitude: 76.6850,
+    address: 'K.R. Circle',
+    parking_type: 'street',
     display_label: 'Likely Free',
     confidence_score: 0.91,
     distance: 95,
   },
   {
-    id: 5, latitude: 12.9740, longitude: 77.5980,
-    address: 'Mahatma Gandhi Rd',
-    parking_type: 'Street',
+    id: 5, latitude: 12.3690, longitude: 76.6920,
+    address: 'Lashkar Mohalla',
+    parking_type: 'street',
     display_label: 'Uncertain',
     confidence_score: 0.48,
     distance: 260,
@@ -65,10 +66,10 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  const [address, setAddress] = useState('Manjushree Nagar, Dharwad')
+  const [address, setAddress] = useState('Mysore, Karnataka')
   const [userLocation, setUserLocation] = useState({
-    lat: 15.4182,
-    lng: 75.0498
+    lat: 12.3661,
+    lng: 76.688065
   })
   const [radius, setRadius] = useState('5000')
 
@@ -81,6 +82,7 @@ export default function App() {
   // NEW: Destination and heuristic state
   const [destination, setDestination] = useState(null)
   const [availabilityInfo, setAvailabilityInfo] = useState(null)
+  const [locLoading, setLocLoading] = useState(false)
 
   // NEW: Image upload state
   const [selectedFile, setSelectedFile] = useState(null)
@@ -164,8 +166,19 @@ export default function App() {
   // Filter spots based on active types
   const filteredSpots = spots.filter(s => activeFilters.includes(s.parking_type?.toLowerCase() || 'street'))
 
-  // Auto-fetch on load
+  // Auto-fetch on load + hydrate location from cache
   useEffect(() => {
+    const cached = localStorage.getItem('parker_last_loc')
+    if (cached) {
+      try {
+        const { lat: cLat, lng: cLng } = JSON.parse(cached)
+        setUserLocation({ lat: cLat, lng: cLng })
+        fetchSpots(cLat, cLng, radius)
+        return
+      } catch (e) {
+        console.error("Cache error", e)
+      }
+    }
     fetchSpots(userLocation.lat, userLocation.lng, radius)
   }, [])
 
@@ -179,22 +192,31 @@ export default function App() {
 
   // Geolocation helper
   const getCurrentLocation = () => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const newLat = pos.coords.latitude
-          const newLng = pos.coords.longitude
-          setUserLocation({ lat: newLat, lng: newLng })
-          fetchSpots(newLat, newLng, radius)
-        },
-        (err) => {
-          console.error("Location access denied", err)
-          setError("Could not get current location")
-        }
-      )
-    } else {
-      setError("Geolocation not supported")
+    if (!('geolocation' in navigator)) {
+      alert("Geolocation not supported by this browser.")
+      return
     }
+
+    setLocLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const newLat = pos.coords.latitude
+        const newLng = pos.coords.longitude
+        
+        const loc = { lat: newLat, lng: newLng }
+        setUserLocation(loc)
+        localStorage.setItem('parker_last_loc', JSON.stringify(loc))
+        
+        fetchSpots(newLat, newLng, radius)
+        setLocLoading(false)
+      },
+      (err) => {
+        console.error("Location error", err)
+        alert("Unable to fetch current location. Please check permissions.")
+        setLocLoading(false)
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
   }
 
   const handleFind = async () => {
@@ -500,13 +522,26 @@ export default function App() {
 
       {/* ── LEGEND ────────────────────────────────────── */}
       <div className="legend">
+        <div style={{ fontSize: '0.65rem', fontWeight: 800, marginBottom: '4px', opacity: 0.6 }}>PARKING TYPES</div>
+        {[
+          { color: '#FFD700', label: 'Structured' },
+          { color: '#3b82f6', label: 'Private' },
+          { color: '#ef4444', label: 'Street' },
+        ].map(item => (
+          <div className="legend-item" key={item.label}>
+            <span className="legend-dot" style={{ background: item.color }} />
+            {item.label}
+          </div>
+        ))}
+        <div style={{ height: '8px' }} />
+        <div style={{ fontSize: '0.65rem', fontWeight: 800, marginBottom: '4px', opacity: 0.6 }}>AVAILABILITY</div>
         {[
           { color: '#22c55e', label: 'Likely Free' },
           { color: '#f59e0b', label: 'Uncertain' },
           { color: '#ef4444', label: 'Likely Occupied' },
         ].map(item => (
           <div className="legend-item" key={item.label}>
-            <span className="legend-dot" style={{ background: item.color }} />
+            <span className="legend-dot" style={{ background: item.color, borderRadius: '2px' }} />
             {item.label}
           </div>
         ))}
@@ -577,11 +612,13 @@ export default function App() {
         <div className="panel-divider" />
 
         <button
-          className="btn-secondary"
+          className={`btn-secondary ${locLoading ? 'loading' : ''}`}
           onClick={getCurrentLocation}
+          disabled={locLoading}
           title="Use my current GPS location"
         >
-          📍 Me
+          {locLoading ? <span className="spinner" /> : '📍'}
+          {locLoading ? 'Locating…' : 'Me'}
         </button>
 
         <div className="panel-divider" />

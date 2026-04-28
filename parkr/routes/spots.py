@@ -110,8 +110,12 @@ def create_spot(
         raise HTTPException(status_code=400, detail="Invalid parking_type")
 
     db.add(spot)
-    db.commit()
-    db.refresh(spot)
+    try:
+        db.commit()
+        db.refresh(spot)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save spot: {str(e)}")
 
     return _spot_to_response(spot)
 
@@ -222,8 +226,11 @@ def verify_spot(
 
 @router.get("", response_model=list[SpotResponse])
 def list_spots(db: Session = Depends(get_db)):
-    spots = db.execute(select(ParkingSpot)).scalars().all()
-    return [_spot_to_response(s) for s in spots]
+    try:
+        spots = db.execute(select(ParkingSpot).where(ParkingSpot.is_active.is_(True))).scalars().all()
+        return [_spot_to_response(s) for s in spots]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch spots: {str(e)}")
 
 
 # ── DETECT SPOT STATUS ───────────────────────────────────────────────────────
@@ -283,3 +290,27 @@ async def detect_spot_status(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
+
+
+# ── DEBUG: RAW SPOT DUMP (demo fallback) ─────────────────────────────────────
+
+@router.get("/debug", include_in_schema=False)
+def debug_spots(db: Session = Depends(get_db)):
+    """Returns raw DB rows — safe fallback for demos if UI fails."""
+    try:
+        rows = db.execute(select(ParkingSpot)).scalars().all()
+        return [
+            {
+                "id": str(s.id),
+                "parking_type": s.parking_type.value if s.parking_type else None,
+                "lat": s.latitude,
+                "lng": s.longitude,
+                "address": s.address,
+                "spot_type": s.spot_type.value if s.spot_type else None,
+                "is_active": s.is_active,
+                "confidence_score": s.confidence_score,
+            }
+            for s in rows
+        ]
+    except Exception as e:
+        return {"error": str(e), "spots": []}

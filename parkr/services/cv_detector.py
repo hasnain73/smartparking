@@ -1,37 +1,31 @@
 import numpy as np
 import cv2
 
+
 def detect_parking_status(image_bytes: bytes) -> dict:
     """
     Analyzes an image to detect if a parking spot is free or occupied.
-    Currently uses a simplified mock logic that returns a stable result
-    based on image brightness to simulate detection.
+    Uses brightness as a simple proxy for occupancy.
+    Always returns a safe result — never raises.
     """
     try:
-        # Decode image
+        if not image_bytes:
+            return {"status": "unknown", "confidence": 0.5, "error": "Empty image data"}
+
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if img is None:
-            raise ValueError("Could not decode image")
+            return {"status": "unknown", "confidence": 0.5, "error": "Could not decode image"}
 
-        # Simplified logic: use brightness as a proxy for 'free' (higher) vs 'occupied' (lower)
-        # In a real app, this would be a YOLO/CNN model call.
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        avg_brightness = np.mean(gray)
-        
-        # Determine status
-        status = "free" if avg_brightness > 120 else "occupied"
-        confidence = 0.85 if avg_brightness > 120 else 0.75
+        avg_brightness = float(np.mean(gray))
 
-        return {
-            "status": status,
-            "confidence": confidence
-        }
+        if avg_brightness > 120:
+            return {"status": "free", "confidence": round(min(avg_brightness / 255, 0.95), 2)}
+        else:
+            return {"status": "occupied", "confidence": round(1.0 - avg_brightness / 255, 2)}
+
     except Exception as e:
-        # Fallback for errors
-        return {
-            "status": "free",
-            "confidence": 0.5,
-            "error": str(e)
-        }
+        # Safe fallback — never crash the API
+        return {"status": "unknown", "confidence": 0.5, "error": str(e)}

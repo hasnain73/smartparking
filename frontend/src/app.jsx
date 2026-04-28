@@ -79,17 +79,21 @@ export default function App() {
   const [error, setError] = useState(null)
   const [spotCount, setSpotCount] = useState(null)
 
-  // NEW: Destination and heuristic state
+  // Destination and heuristic state
   const [destination, setDestination] = useState(null)
   const [availabilityInfo, setAvailabilityInfo] = useState(null)
   const [locLoading, setLocLoading] = useState(false)
 
-  // NEW: Image upload state
+  // Unified post location — set by map click, NOT by GPS
+  const [selectedLocation, setSelectedLocation] = useState(null)
+
+  // Image upload state
   const [selectedFile, setSelectedFile] = useState(null)
   const [selectedType, setSelectedType] = useState('street')
   const [postModalOpen, setPostModalOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState(null)
+  const [successMsg, setSuccessMsg] = useState(null)
   const [searchHistory, setSearchHistory] = useState(() => {
     return JSON.parse(localStorage.getItem('parker_history') || '[]')
   })
@@ -289,22 +293,35 @@ export default function App() {
     }
   }
 
-  // NEW: Handle image upload and CV detection
+  // Handle image upload and CV detection — uses selectedLocation (map click)
   const handlePostSpot = async () => {
+    // Validation: must have a location selected via map click
+    if (!selectedLocation) {
+      alert('Please select a location on the map first')
+      return
+    }
     if (!selectedFile) {
       alert('Please select an image first')
+      return
+    }
+    // Validate coordinates are sane numbers
+    if (isNaN(selectedLocation.lat) || isNaN(selectedLocation.lng) ||
+        selectedLocation.lat < -90 || selectedLocation.lat > 90 ||
+        selectedLocation.lng < -180 || selectedLocation.lng > 180) {
+      alert('Invalid coordinates. Please click a valid location on the map.')
       return
     }
 
     setUploading(true)
     setUploadResult(null)
+    setError(null)
 
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
       formData.append('parking_type', selectedType)
-      formData.append('lat', userLocation.lat)
-      formData.append('lng', userLocation.lng)
+      formData.append('lat', selectedLocation.lat)
+      formData.append('lng', selectedLocation.lng)
 
       const res = await fetch(`${API_BASE}/api/v1/spots`, {
         method: 'POST',
@@ -318,22 +335,27 @@ export default function App() {
 
       const newSpot = await res.json()
 
-      // Normalize coords and append — no refetch, no reload
+      // Normalize coords and append via functional update (no stale state)
       const normalized = normalizeSpot(newSpot)
       setSpots(prev => {
-        // Guard against duplicate if backend echoes an ID already in state
         if (prev.some(s => s.id === normalized.id)) return prev
         return [...prev, normalized]
       })
+      setSpotCount(prev => (prev ?? 0) + 1)
 
       setUploadResult(newSpot)
       setSelectedFile(null)
       setPostModalOpen(false)
+      setSelectedLocation(null)
+
+      // Success confirmation
+      setSuccessMsg('Spot added successfully!')
+      setTimeout(() => setSuccessMsg(null), 3000)
 
     } catch (err) {
       console.error('Upload failed:', err)
-      setError(err.message || 'Upload failed')
-      setTimeout(() => setError(null), 3000)
+      setError(err.message || 'Upload failed. Check your network and try again.')
+      setTimeout(() => setError(null), 4000)
     } finally {
       setUploading(false)
     }
@@ -382,11 +404,13 @@ export default function App() {
     })
   }
 
+  // Map click → Post: sets selectedLocation (does NOT move map/userLocation)
   const onPostLocation = (clickedLat, clickedLng) => {
-    setUserLocation({ lat: clickedLat, lng: clickedLng })
+    setSelectedLocation({ lat: clickedLat, lng: clickedLng })
     setPostModalOpen(true)
   }
 
+  // Map click → Find: moves map and searches nearby
   const onFindLocation = (clickedLat, clickedLng) => {
     setUserLocation({ lat: clickedLat, lng: clickedLng })
     setDestination({ lat: clickedLat, lng: clickedLng })
@@ -400,6 +424,9 @@ export default function App() {
     <div className="app-layout">
       {/* Loading strip */}
       {loadBar && <div className="status-strip" key={Date.now()} />}
+
+      {/* Success toast */}
+      {successMsg && <div className="toast toast-success" key={successMsg}>{successMsg}</div>}
 
       {/* Error toast */}
       {error && <div className="toast" key={error}>{error}</div>}
@@ -523,9 +550,22 @@ export default function App() {
           <div className="modal-content">
             <div className="modal-header">
               <h3>Post Parking Spot</h3>
-              <button className="close-btn" onClick={() => setPostModalOpen(false)}>×</button>
+              <button className="close-btn" onClick={() => { setPostModalOpen(false); setSelectedLocation(null) }}>×</button>
             </div>
             <div className="modal-body">
+              {/* Show selected coordinates */}
+              <div className="input-group">
+                <span>Location</span>
+                {selectedLocation ? (
+                  <div style={{ fontSize: '0.85rem', padding: '8px 11px', background: 'var(--input-bg)', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--border)' }}>
+                    📍 {selectedLocation.lat.toFixed(5)}, {selectedLocation.lng.toFixed(5)}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.85rem', padding: '8px 11px', color: '#f59e0b', background: 'var(--input-bg)', borderRadius: 'var(--radius-sm)', border: '1.5px solid #f59e0b44' }}>
+                    ⚠ Click on the map to select a location
+                  </div>
+                )}
+              </div>
               <div className="input-group">
                 <span>Upload Image</span>
                 <input
@@ -545,7 +585,7 @@ export default function App() {
               <button
                 className={`btn-primary ${uploading ? 'loading' : ''}`}
                 onClick={handlePostSpot}
-                disabled={uploading || !selectedFile}
+                disabled={uploading || !selectedFile || !selectedLocation}
                 style={{ width: '100%', marginTop: '16px' }}
               >
                 {uploading ? 'Posting…' : 'Submit Spot'}
@@ -691,7 +731,13 @@ export default function App() {
 
         <button
           className="btn-secondary"
-          onClick={() => setPostModalOpen(true)}
+          onClick={() => {
+            if (!selectedLocation) {
+              alert('Please click on the map to select a location first')
+              return
+            }
+            setPostModalOpen(true)
+          }}
         >
           ＋ Post Spot
         </button>

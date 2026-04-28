@@ -252,10 +252,27 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
     })
   }, [heatZones])
 
-  // 📍 Me button handler — always snaps to fixed demo location
+  // 📍 Me button — uses real browser geolocation
   const handleMeClick = () => {
-    if (!mapInstanceRef.current) return
-    mapInstanceRef.current.setView(DEMO_LOCATION, 16, { animate: true })
+    if (!navigator.geolocation) {
+      alert('Geolocation not supported by your browser')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([latitude, longitude], 16, { animate: true })
+        }
+        if (callbacksRef.current.onFindLocation) {
+          callbacksRef.current.onFindLocation(latitude, longitude)
+        }
+      },
+      () => {
+        alert('Unable to fetch current location')
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
   }
 
   return (

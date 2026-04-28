@@ -190,8 +190,8 @@ export default function App() {
     return () => clearInterval(interval)
   }, [userLocation.lat, userLocation.lng, radius, fetchSpots])
 
-  // Geolocation helper
-  const getCurrentLocation = () => {
+  // Geolocation helper with Reverse Geocoding
+  const handleUseMyLocation = () => {
     if (!('geolocation' in navigator)) {
       alert("Geolocation not supported by this browser.")
       return
@@ -199,20 +199,39 @@ export default function App() {
 
     setLocLoading(true)
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const newLat = pos.coords.latitude
         const newLng = pos.coords.longitude
         
+        console.log("GPS Location Received:", newLat, newLng)
+
+        // 1. Update coordinates state
         const loc = { lat: newLat, lng: newLng }
         setUserLocation(loc)
         localStorage.setItem('parker_last_loc', JSON.stringify(loc))
         
+        // 2. Fetch spots around this location
         fetchSpots(newLat, newLng, radius)
-        setLocLoading(false)
+
+        // 3. Reverse geocoding (Connect GPS to human-readable address)
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${newLat}&lon=${newLng}&format=json`
+          )
+          const data = await res.json()
+
+          if (data && data.display_name) {
+            setAddress(data.display_name)
+          }
+        } catch (err) {
+          console.error("Reverse geocode failed", err)
+        } finally {
+          setLocLoading(false)
+        }
       },
       (err) => {
         console.error("Location error", err)
-        alert("Unable to fetch current location. Please check permissions.")
+        alert("Location permission denied or unavailable.")
         setLocLoading(false)
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -613,7 +632,7 @@ export default function App() {
 
         <button
           className={`btn-secondary ${locLoading ? 'loading' : ''}`}
-          onClick={getCurrentLocation}
+          onClick={handleUseMyLocation}
           disabled={locLoading}
           title="Use my current GPS location"
         >

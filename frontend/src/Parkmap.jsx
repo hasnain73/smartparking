@@ -9,10 +9,12 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
+const DEMO_LOCATION = [15.4548, 75.0077]
+
 function getStatusColor(spot) {
-  if (spot.spot_type === "structured") return "#FFD700" // gold
-  if (spot.parking_type === "private") return "#3b82f6"  // blue
-  return "#ef4444" // red (street default)
+  if (spot.spot_type === "structured") return "#FFD700"
+  if (spot.parking_type === "private") return "#3b82f6"
+  return "#ef4444"
 }
 
 function getStatusClass(label) {
@@ -118,14 +120,14 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
 
       const container = L.DomUtil.create('div')
       container.innerHTML = `
-                <div>
-                  <p style="margin: 0 0 10px 0; font-weight: 500; color: #111;">What do you want to do?</p>
-                  <div style="display: flex; gap: 8px;">
-                    <button id="post-btn" style="cursor: pointer; padding: 6px 12px; background: #e63946; color: white; border: none; border-radius: 4px; font-weight: 600;">Post Spot</button>
-                    <button id="find-btn" style="cursor: pointer; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-weight: 600;">Find Parking</button>
-                  </div>
-                </div>
-            `
+        <div>
+          <p style="margin: 0 0 10px 0; font-weight: 500; color: #111;">What do you want to do?</p>
+          <div style="display: flex; gap: 8px;">
+            <button id="post-btn" style="cursor: pointer; padding: 6px 12px; background: #e63946; color: white; border: none; border-radius: 4px; font-weight: 600;">Post Spot</button>
+            <button id="find-btn" style="cursor: pointer; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-weight: 600;">Find Parking</button>
+          </div>
+        </div>
+      `
 
       container.querySelector('#post-btn').onclick = () => {
         mapInstanceRef.current.closePopup()
@@ -159,23 +161,26 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
     mapInstanceRef.current.setView(center, 16, { animate: true })
   }, [center[0], center[1]])
 
-  // Update markers
+  // Update markers — re-renders whenever spots array changes
   useEffect(() => {
     if (!mapInstanceRef.current) return
+
+    // Clear all existing markers
     markersRef.current.forEach(m => m.remove())
     markersRef.current = []
 
     spots.forEach(spot => {
-      if (!spot.lat || !spot.lng) return
+      // Support both normalized (lat/lng) and raw API (latitude/longitude) shapes
+      const lat = spot.lat ?? spot.latitude
+      const lng = spot.lng ?? spot.longitude
+      if (lat == null || lng == null) return
+
       const color = getStatusColor(spot)
       const isHighConf = (spot.confidence_score || 0) > 0.8
       const icon = makeIcon(color, isHighConf)
-      const marker = L.marker([spot.lat, spot.lng], { icon })
+      const marker = L.marker([lat, lng], { icon })
         .addTo(mapInstanceRef.current)
-        .bindPopup(buildPopupHTML(spot), {
-          maxWidth: 240,
-          className: '',
-        })
+        .bindPopup(buildPopupHTML(spot), { maxWidth: 240, className: '' })
       markersRef.current.push(marker)
     })
   }, [spots])
@@ -183,11 +188,11 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
   // Update user location marker
   useEffect(() => {
     if (!mapInstanceRef.current || !userLocation) return
-    
+
     if (userMarkerRef.current) {
       userMarkerRef.current.remove()
     }
-    
+
     userMarkerRef.current = L.circleMarker([userLocation.lat, userLocation.lng], {
       radius: 8,
       color: '#3b82f6',
@@ -229,7 +234,7 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
   // Draw heat zones
   useEffect(() => {
     if (!mapInstanceRef.current || !heatZones) return
-    
+
     heatZonesRef.current.forEach(z => z.remove())
     heatZonesRef.current = []
 
@@ -240,16 +245,47 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
         fillColor: "#f97316",
         fillOpacity: zone.intensity * 0.3
       })
-      .addTo(mapInstanceRef.current)
-      .bindPopup("High demand area")
-      
+        .addTo(mapInstanceRef.current)
+        .bindPopup("High demand area")
+
       heatZonesRef.current.push(circle)
     })
   }, [heatZones])
 
+  // 📍 Me button handler — always snaps to fixed demo location
+  const handleMeClick = () => {
+    if (!mapInstanceRef.current) return
+    mapInstanceRef.current.setView(DEMO_LOCATION, 16, { animate: true })
+  }
+
   return (
-    <div className="map-container">
+    <div className="map-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* 📍 Me Button */}
+      <button
+        onClick={handleMeClick}
+        style={{
+          position: 'absolute',
+          bottom: '24px',
+          right: '12px',
+          zIndex: 1000,
+          background: '#fff',
+          border: '2px solid #3b82f6',
+          borderRadius: '50%',
+          width: '44px',
+          height: '44px',
+          fontSize: '20px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+        }}
+        title="Go to my location"
+      >
+        📍
+      </button>
     </div>
   )
 }

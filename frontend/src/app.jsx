@@ -113,6 +113,13 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Normalize API spot fields: map latitude/longitude → lat/lng for consistent map usage
+  const normalizeSpot = (s) => ({
+    ...s,
+    lat: s.lat ?? s.latitude,
+    lng: s.lng ?? s.longitude,
+  })
+
   const fetchSpots = useCallback(async (latVal, lngVal, radiusVal) => {
     setLoading(true)
     setLoadBar(true)
@@ -126,16 +133,13 @@ export default function App() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const rawList = Array.isArray(data) ? data : data.spots || data.results || []
-      
-      // Fake subtle variation for real-time feel
+
       const list = rawList.map(s => {
+        const norm = normalizeSpot(s)
         const noise = (Math.random() - 0.5) * 0.05
-        let newConf = (s.confidence_score || 0.5) + noise
+        let newConf = (norm.confidence_score || 0.5) + noise
         newConf = Math.max(0, Math.min(1, newConf))
-        return {
-          ...s,
-          confidence_score: parseFloat(newConf.toFixed(2))
-        }
+        return { ...norm, confidence_score: parseFloat(newConf.toFixed(2)) }
       })
 
       setSpots(list)
@@ -144,10 +148,11 @@ export default function App() {
       // Fallback to mock with variation
       console.warn('Backend unavailable, using mock data')
       const mocked = MOCK_SPOTS.map(s => {
+        const norm = normalizeSpot(s)
         const noise = (Math.random() - 0.5) * 0.05
-        let newConf = (s.confidence_score || 0.5) + noise
+        let newConf = (norm.confidence_score || 0.5) + noise
         newConf = Math.max(0, Math.min(1, newConf))
-        return { ...s, confidence_score: parseFloat(newConf.toFixed(2)) }
+        return { ...norm, confidence_score: parseFloat(newConf.toFixed(2)) }
       })
       setSpots(mocked)
       setSpotCount(mocked.length)
@@ -165,6 +170,27 @@ export default function App() {
 
   // Filter spots based on active types
   const filteredSpots = spots.filter(s => activeFilters.includes(s.parking_type?.toLowerCase() || 'street'))
+
+  // Load ALL spots on mount (persistent baseline), then refine with nearby
+  useEffect(() => {
+    const loadAllSpots = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/spots`)
+        if (res.ok) {
+          const data = await res.json()
+          const rawList = Array.isArray(data) ? data : data.spots || data.results || []
+          const list = rawList.map(normalizeSpot)
+          if (list.length > 0) {
+            setSpots(list)
+            setSpotCount(list.length)
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load all spots:', err)
+      }
+    }
+    loadAllSpots()
+  }, [])
 
   // Auto-fetch on load + hydrate location from cache
   useEffect(() => {
@@ -201,12 +227,12 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords
-        
+
         // 1. Update state (which moves map and shows marker via Parkmap props)
         const loc = { lat: latitude, lng: longitude }
         setUserLocation(loc)
         localStorage.setItem('parker_last_loc', JSON.stringify(loc))
-        
+
         // 2. Refresh spots
         fetchSpots(latitude, longitude, radius)
 
@@ -277,14 +303,10 @@ export default function App() {
       const formData = new FormData()
       formData.append('file', selectedFile)
       formData.append('parking_type', selectedType)
+      formData.append('lat', userLocation.lat)
+      formData.append('lng', userLocation.lng)
 
-      // Use first spot ID if available, otherwise detection-only
-      const spotId = spots.length > 0 ? spots[0].id : null
-      if (spotId) {
-        formData.append('spot_id', spotId)
-      }
-
-      const res = await fetch(`${API_BASE}/api/v1/spots/detect`, {
+      const res = await fetch(`${API_BASE}/api/v1/spots`, {
         method: 'POST',
         body: formData,
       })
@@ -294,17 +316,19 @@ export default function App() {
         throw new Error(errData.detail || `HTTP ${res.status}`)
       }
 
-      const result = await res.json()
-      setUploadResult(result)
+      const newSpot = await res.json()
 
-      // Success cleanup
+      // Normalize coords and append — no refetch, no reload
+      const normalized = normalizeSpot(newSpot)
+      setSpots(prev => {
+        // Guard against duplicate if backend echoes an ID already in state
+        if (prev.some(s => s.id === normalized.id)) return prev
+        return [...prev, normalized]
+      })
+
+      setUploadResult(newSpot)
       setSelectedFile(null)
       setPostModalOpen(false)
-      
-      // Optionally refresh spots to see new signal
-      if (result.signal_id) {
-        setTimeout(() => fetchSpots(lat, lng, radius), 500)
-      }
 
     } catch (err) {
       console.error('Upload failed:', err)
@@ -475,17 +499,17 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Expires in:</span> <span>{availabilityInfo.availability} min</span>
             </div>
-            <div style={{ 
-              marginTop: '4px', 
-              padding: '4px 8px', 
-              borderRadius: '4px', 
+            <div style={{
+              marginTop: '4px',
+              padding: '4px 8px',
+              borderRadius: '4px',
               textAlign: 'center',
               fontWeight: 'bold',
               fontSize: '0.8rem',
-              background: availabilityInfo.statusClass === 'free' ? '#22c55e33' : 
-                          availabilityInfo.statusClass === 'uncertain' ? '#f59e0b33' : '#ef444433',
-              color: availabilityInfo.statusClass === 'free' ? '#22c55e' : 
-                     availabilityInfo.statusClass === 'uncertain' ? '#f59e0b' : '#ef4444',
+              background: availabilityInfo.statusClass === 'free' ? '#22c55e33' :
+                availabilityInfo.statusClass === 'uncertain' ? '#f59e0b33' : '#ef444433',
+              color: availabilityInfo.statusClass === 'free' ? '#22c55e' :
+                availabilityInfo.statusClass === 'uncertain' ? '#f59e0b' : '#ef4444',
             }}>
               {availabilityInfo.status}
             </div>
@@ -504,10 +528,10 @@ export default function App() {
             <div className="modal-body">
               <div className="input-group">
                 <span>Upload Image</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={(e) => setSelectedFile(e.target.files[0])} 
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
                 />
               </div>
               <div className="input-group">
@@ -518,7 +542,7 @@ export default function App() {
                   <option value="structured">Structured</option>
                 </select>
               </div>
-              <button 
+              <button
                 className={`btn-primary ${uploading ? 'loading' : ''}`}
                 onClick={handlePostSpot}
                 disabled={uploading || !selectedFile}
@@ -566,7 +590,7 @@ export default function App() {
             type="text"
             value={address}
             onChange={e => setAddress(e.target.value)}
-            onFocus={() => {}} // Optional: show history dropdown
+            onFocus={() => { }} // Optional: show history dropdown
             placeholder="Enter an address or landmark..."
           />
           {searchHistory.length > 0 && (
@@ -581,15 +605,37 @@ export default function App() {
           )}
         </div>
 
+        <div className="input-group" style={{ flex: 1, minWidth: '180px' }}>
+          <span>Jump to Spot</span>
+          <select 
+            onChange={(e) => {
+              const spot = spots.find(s => s.id === e.target.value)
+              if (spot) {
+                const lat = spot.lat ?? spot.latitude
+                const lng = spot.lng ?? spot.longitude
+                setUserLocation({ lat, lng })
+              }
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>Select a spot...</option>
+            {spots.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.address || `Spot at (${(s.lat ?? s.latitude || 0).toFixed(4)}, ${(s.lng ?? s.longitude || 0).toFixed(4)})`}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="input-group" style={{ flex: 0, minWidth: '150px' }}>
           <span>Filters</span>
           <div className="filter-chips">
             {['street', 'private', 'structured'].map(f => (
-              <button 
+              <button
                 key={f}
                 className={`filter-chip ${activeFilters.includes(f) ? 'active' : ''}`}
                 onClick={() => {
-                  setActiveFilters(prev => 
+                  setActiveFilters(prev =>
                     prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]
                   )
                 }}

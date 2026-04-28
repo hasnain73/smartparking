@@ -334,7 +334,8 @@ body,
   padding-left: 2px;
 }
 
-.input-group input {
+.input-group input,
+.input-group select {
   background: var(--input-bg);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
@@ -345,9 +346,11 @@ body,
   width: 100%;
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
+  cursor: pointer;
 }
 
-.input-group input:focus {
+.input-group input:focus,
+.input-group select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-muted);
 }

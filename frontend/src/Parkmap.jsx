@@ -83,7 +83,7 @@ function buildPopupHTML(spot) {
   `
 }
 
-export default function ParkMap({ spots, center, isDark, onPostLocation, onFindLocation, userLocation, destination, heatZones }) {
+export default function ParkMap({ spots, center, isDark, onPostLocation, onFindLocation, userLocation, destination, heatZones, onMapReady }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markersRef = useRef([])
@@ -109,10 +109,18 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
 
     L.control.zoom({ position: 'topright' }).addTo(mapInstanceRef.current)
 
-    tileLayerRef.current = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { attribution: '© OpenStreetMap', maxZoom: 19 }
-    ).addTo(mapInstanceRef.current)
+    // Expose map instance to parent so App can call setView() for dropdown navigation
+    if (onMapReady) onMapReady(mapInstanceRef.current)
+
+    // Use a dark tile layer when in dark mode, standard OSM otherwise
+    const tileUrl = isDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+
+    tileLayerRef.current = L.tileLayer(tileUrl, {
+      attribution: isDark ? '© CARTO © OpenStreetMap' : '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(mapInstanceRef.current)
 
     mapInstanceRef.current.on('click', (e) => {
       const { lat, lng } = e.latlng
@@ -154,6 +162,21 @@ export default function ParkMap({ spots, center, isDark, onPostLocation, onFindL
       mapInstanceRef.current = null
     }
   }, [])
+
+  // Swap tile layer when theme changes (isDark toggled from App)
+  useEffect(() => {
+    if (!mapInstanceRef.current) return
+    if (tileLayerRef.current) {
+      mapInstanceRef.current.removeLayer(tileLayerRef.current)
+    }
+    const tileUrl = isDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    tileLayerRef.current = L.tileLayer(tileUrl, {
+      attribution: isDark ? '© CARTO © OpenStreetMap' : '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(mapInstanceRef.current)
+  }, [isDark])
 
   // Recenter
   useEffect(() => {

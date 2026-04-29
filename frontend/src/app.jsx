@@ -98,7 +98,12 @@ export default function App() {
     return JSON.parse(localStorage.getItem('parker_history') || '[]')
   })
   const [activeFilters, setActiveFilters] = useState(['street', 'private', 'structured'])
-  const fileInputRef = useRef(null)
+  const mapRef = useRef(null) // Leaflet map instance, set by ParkMap via onMapReady
+
+  // Called by ParkMap once on mount — gives App direct access to the map instance
+  const onMapReady = (mapInstance) => {
+    mapRef.current = mapInstance
+  }
 
   // Apply theme & accent to <html>
   useEffect(() => {
@@ -212,13 +217,14 @@ export default function App() {
     fetchSpots(userLocation.lat, userLocation.lng, radius)
   }, [])
 
-  // Auto-refresh every 8 seconds
+  // Auto-refresh every 8 seconds — skips if an upload is in progress
   useEffect(() => {
     const interval = setInterval(() => {
+      if (uploading) return
       fetchSpots(userLocation.lat, userLocation.lng, radius)
     }, 8000)
     return () => clearInterval(interval)
-  }, [userLocation.lat, userLocation.lng, radius, fetchSpots])
+  }, [userLocation.lat, userLocation.lng, radius, fetchSpots, uploading])
 
   // Geolocation handler for the 📍 button
   const handleUseMyLocation = () => {
@@ -306,8 +312,8 @@ export default function App() {
     }
     // Validate coordinates are sane numbers
     if (isNaN(selectedLocation.lat) || isNaN(selectedLocation.lng) ||
-        selectedLocation.lat < -90 || selectedLocation.lat > 90 ||
-        selectedLocation.lng < -180 || selectedLocation.lng > 180) {
+      selectedLocation.lat < -90 || selectedLocation.lat > 90 ||
+      selectedLocation.lng < -180 || selectedLocation.lng > 180) {
       alert('Invalid coordinates. Please click a valid location on the map.')
       return
     }
@@ -495,6 +501,7 @@ export default function App() {
         userLocation={userLocation}
         destination={destination}
         heatZones={HEAT_ZONES}
+        onMapReady={onMapReady}
       />
 
       {/* ── RESULT BADGE ─────────────────────────────── */}
@@ -647,20 +654,23 @@ export default function App() {
 
         <div className="input-group" style={{ flex: 1, minWidth: '180px' }}>
           <span>Jump to Spot</span>
-          <select 
-            onChange={(e) => {
-              const spot = spots.find(s => s.id === e.target.value)
-              if (spot) {
-                const lat = spot.lat ?? spot.latitude
-                const lng = spot.lng ?? spot.longitude
-                setUserLocation({ lat, lng })
-              }
-            }}
+          <select
             defaultValue=""
+            onChange={(e) => {
+              // e.target.value is always a string — use String() comparison to match numeric ids
+              const spot = spots.find(s => String(s.id) === e.target.value)
+              if (!spot || !mapRef.current) return
+              const lat = spot.lat ?? spot.latitude
+              const lng = spot.lng ?? spot.longitude
+              if (lat == null || lng == null) return
+              // Fly the map view only — do NOT touch userLocation, destination, or routes
+              mapRef.current.setView([lat, lng], 16, { animate: true })
+            }}
           >
             <option value="" disabled>Select a spot...</option>
             {spots.map(s => (
-              <option key={s.id} value={s.id}>
+              <option key={s.id} value={String(s.id)}>
+                {s.id ? `#${s.id} — ` : ''}
                 {s.address || `Spot at (${(s.lat ?? s.latitude ?? 0).toFixed(4)}, ${(s.lng ?? s.longitude ?? 0).toFixed(4)})`}
               </option>
             ))}

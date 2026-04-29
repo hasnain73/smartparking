@@ -661,7 +661,7 @@ export default function App() {
             <option value="" disabled>Select a spot...</option>
             {spots.map(s => (
               <option key={s.id} value={s.id}>
-                {s.address || `Spot at (${(s.lat ?? s.latitude || 0).toFixed(4)}, ${(s.lng ?? s.longitude || 0).toFixed(4)})`}
+                {s.address || `Spot at (${(s.lat ?? s.latitude ?? 0).toFixed(4)}, ${(s.lng ?? s.longitude ?? 0).toFixed(4)})`}
               </option>
             ))}
           </select>
